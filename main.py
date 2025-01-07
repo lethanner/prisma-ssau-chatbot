@@ -1,5 +1,4 @@
 from requests import get as httpget
-from random import randint
 import team
 import json
 import configparser
@@ -40,10 +39,8 @@ def updateLongPoll():
 # отправка сообщения
 def sendMessage(peer_id: int, text: str, keyboard: str = '{"buttons": []}'):
     try:
-        vk.messages.send(peer_id=peer_id,
-                        message=text,
-                        random_id=randint(0, 4294967296),
-                        keyboard=keyboard)
+        vk.messages.send(peer_id=peer_id,message=text,random_id=0,
+                         keyboard=keyboard)
     except Exception as e:
         print("[ERROR] Failed to send message to", peer_id, "!", e)
         pass
