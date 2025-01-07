@@ -38,7 +38,7 @@ def updateLongPoll():
     saveConfig()
 
 # отправка сообщения
-def sendMessage(peer_id: int, text: str, keyboard: str = ""):
+def sendMessage(peer_id: int, text: str, keyboard: str = '{"buttons": []}'):
     try:
         vk.messages.send(peer_id=peer_id,
                         message=text,
@@ -96,7 +96,7 @@ def takeMessage(events):
 
             # кнопки "У меня нет отчества" и "Начать заново"
             keyboard = json.dumps({
-                "inline": True,
+                "one_time": True,
                 "buttons": [[{
                     "action": {
                         "type": "text",
