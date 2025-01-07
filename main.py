@@ -139,9 +139,9 @@ def takeMessage(events):
                 # уведомляем о регистрации замыкающего направления, худрука и администратора
                 msg = "[id{0}|{1}] подал(а) заявку на участие в: {2}.\r\nНомер группы: {3}".format(
                     from_id, usercache[from_id][0],
-                    team.directions[usercache[from_id][2]]['name'],
+                    team.directions[direction_sel]['name'],
                     text)
-                sendMessage(team.directions[direction_sel]['director'][0], msg)
+                sendMessage(team.get_director(direction_sel)[0], msg)
                 # т.к. это последняя стадия регистрации, отправляем сообщение "Спасибо" и удаляем юзера из кэша
                 sendMessage(from_id, team.thanks)
                 del usercache[from_id]
