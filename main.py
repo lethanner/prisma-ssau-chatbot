@@ -120,6 +120,7 @@ def takeMessage(events):
                 usercache[from_id][1] = 2
                 # сразу просим номер группы
                 sendMessage(from_id, team.group_request)
+                continue
 
             stage = usercache[from_id][1]
             direction_sel = usercache[from_id][2]
