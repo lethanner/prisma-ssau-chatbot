@@ -194,7 +194,8 @@ try:
         try:
             events = httpget(config['longpoll']['server'], params={'act': 'a_check',
                                                                 'key': config['longpoll']['key'],
-                                                                'ts': ts, 'wait': 25})
+                                                                'ts': ts, 'wait': 25},
+                                                                timeout=30)
             logger.debug(events.json())
             error = events.json().get('failed')
             if error in (2, 3):
