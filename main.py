@@ -6,6 +6,7 @@ import logging
 import json
 import configparser
 import vk
+from time import sleep
 
 configfile = 'prisma.ini'
 config = configparser.ConfigParser()
@@ -13,7 +14,7 @@ config.read(configfile)
 
 # логирование оставляю для отлова ошибок в случае их возникновения
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 loghandler = logging.FileHandler('prismabot.log', 'a', 'utf-8')
 loghandler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
 logger.addHandler(loghandler)
@@ -34,17 +35,24 @@ def saveConfig():
     print('done.')
 
 def updateLongPoll():
-    global ts
+    try:
+        global ts
 
-    print('[SYSTEM] Getting new Long Poll server...')
-    new_lp = vk.groups.getLongPollServer(group_id=group_id)
+        print('[SYSTEM] Getting new Long Poll server...')
+        new_lp = vk.groups.getLongPollServer(group_id=group_id)
 
-    if not 'longpoll' in config:
-        config.add_section('longpoll')
-    config['longpoll']['server'] = new_lp['server']
-    config['longpoll']['key'] = new_lp['key']
-    ts = new_lp['ts']
-    saveConfig()
+        if not 'longpoll' in config:
+            config.add_section('longpoll')
+        config['longpoll']['server'] = new_lp['server']
+        config['longpoll']['key'] = new_lp['key']
+        ts = new_lp['ts']
+
+        logger.debug("Got new Long Poll server config")
+        logger.debug(new_lp)
+        saveConfig()
+    except Exception as e:
+        logger.error(e, exc_info=1)
+        print("[ERROR] Failed to get Long Poll server config!", e)
 
 # отправка сообщения
 def sendMessage(peer_id: int, text: str, keyboard: str = '{"buttons": []}'):
@@ -182,22 +190,37 @@ try:
     print('[SYSTEM] Bot is started.')
     logger.info("Bot is started.")
     while True:
-        events = httpget(config['longpoll']['server'], params={'act': 'a_check',
-                                                               'key': config['longpoll']['key'],
-                                                               'ts': ts, 'wait': 25})
-        error = events.json().get('failed')
-        if error in (2, 3):
+        # блок получения сообщений через longpoll
+        try:
+            events = httpget(config['longpoll']['server'], params={'act': 'a_check',
+                                                                'key': config['longpoll']['key'],
+                                                                'ts': ts, 'wait': 25})
+            logger.debug(events.json())
+            error = events.json().get('failed')
+            if error in (2, 3):
+                updateLongPoll()
+                continue
+
+        except Exception as e:
+            print("[ERROR] Long Poll error!!!!!")
+            logger.error("Fatal LongPoll error!")
+            logger.error(e, exc_info=1)
+            print("[SYSTEM] Waiting 30 seconds")
+            sleep(30)
             updateLongPoll()
-        else:
-            try:
-                ts = events.json()['ts']
-                #print(events.json())
-                takeMessage(events.json())
-            except Exception as e:
-                print("[ERROR] Something went wrong!!!", e)
-                sendMessage(config.getint('auth','bot_admin'), "боту плохо, посмотри логи... " + str(e))
-                logger.error(e, exc_info=1)
-                pass
+            pass
+
+        # блок обработки сообщений (и ошибок, с ними связанных)
+        try:
+            ts = events.json()['ts']
+            #print(events.json())
+            takeMessage(events.json())
+
+        except Exception as e:
+            print("[ERROR] Something went wrong!!!", e)
+            sendMessage(config.getint('auth','bot_admin'), "боту плохо, посмотри логи... " + str(e))
+            logger.error(e, exc_info=1)
+            pass
         
 except KeyboardInterrupt:
     saveConfig()
