@@ -22,7 +22,38 @@ logger.addHandler(loghandler)
 vk = vk.API(access_token=config['auth']['group'],v=5.199)
 group_id = config.getint('misc','group_id')
 
+# кнопки с названиями направлений
 dirs_keyboard = json.dumps(team.generate_keyboard())
+# кнопки "У меня нет отчества" и кнпока отмены
+kb_cancel_nosurname = json.dumps({
+                "one_time": True,
+                "buttons": [[{
+                    "action": {
+                        "type": "text",
+                        "payload": '{"command": "no_surname"}',
+                        "label": "У меня нет отчества"
+                    },
+                    "color": "secondary"
+                }],[{
+                    "action": {
+                        "type": "text",
+                        "payload": '{"command": "start"}',
+                        "label": "Отменить выбор"
+                    },
+                    "color": "negative"
+                }]]})
+# кнопка отмены
+kb_cancel_only = json.dumps({
+                "one_time": True,
+                "buttons": [[{
+                    "action": {
+                        "type": "text",
+                        "payload": '{"command": "start"}',
+                        "label": "Отменить выбор"
+                    },
+                    "color": "negative"
+                }]]})
+
 usercache = {}
 
 # конфиг и long polling
@@ -110,6 +141,7 @@ def takeMessage(events):
                     "color": "positive"
                 }]]})
             sendMessage(from_id, team.dir_description(data), keyboard)
+        # отладочное
         elif text == "/lol" and from_id == config.getint('auth','bot_admin'):
             a = 1/0
         # нажатие кнопки "хочу сюда"
@@ -119,33 +151,14 @@ def takeMessage(events):
             print("[DATA] VK username:", from_id, ", is_verified:", user[0]['is_verified'])
             # удобства с ВКшным payload на этом закончились, теперь надо кэшировать всё ручками
             usercache.update({from_id: [username, 1, data]})
-
-            # кнопки "У меня нет отчества" и "Начать заново"
-            keyboard = json.dumps({
-                "one_time": True,
-                "buttons": [[{
-                    "action": {
-                        "type": "text",
-                        "payload": '{"command": "no_surname"}',
-                        "label": "У меня нет отчества"
-                    },
-                    "color": "secondary"
-                }],[{
-                    "action": {
-                        "type": "text",
-                        "payload": '{"command": "start"}',
-                        "label": "Отменить выбор"
-                    },
-                    "color": "negative"
-                }]]})
-            sendMessage(from_id, team.choose_msg(data, username), keyboard)
+            sendMessage(from_id, team.choose_msg(data, username), kb_cancel_nosurname)
         # если юзер уже в кэше, то работаем с ним вот так
         elif from_id in usercache:
             # если была кнопка "нет отчества", перескакиваем сразу на stage 2
             if command == "no_surname":
                 usercache[from_id][1] = 2
                 # сразу просим номер группы
-                sendMessage(from_id, team.group_request)
+                sendMessage(from_id, team.group_request, kb_cancel_only)
                 continue
 
             stage = usercache[from_id][1]
@@ -160,7 +173,7 @@ def takeMessage(events):
                 else:
                     usercache[from_id][0] += ' ' + text
                 # и потом просим у клиента номер группы
-                sendMessage(from_id, team.group_request)
+                sendMessage(from_id, team.group_request, kb_cancel_only)
                 usercache[from_id][1] = 2
             elif stage == 2:
                 # уведомляем о регистрации замыкающего направления, худрука и администратора
@@ -177,7 +190,7 @@ def takeMessage(events):
                 # дополнительно сохраняем инфу в файл, на случай если замыки случайно удалят сообщения
                 sendMessage(from_id, team.thanks.format(config['misc']['chat_url']))
                 with open("database/{0}.txt".format(team.directions[direction_sel]['codename']), 'a+', encoding='utf-8') as file:
-                    file.write("{0}\r\nhttps://vk.com/id{1}\r\n\r\n".format(usercache[from_id][0], from_id))
+                    file.write("{0}\r\n{1}\r\nhttps://vk.com/id{2}\r\n\r\n".format(usercache[from_id][0], text, from_id))
                 del usercache[from_id]
         
 # главный цЫкл бота
@@ -214,7 +227,6 @@ try:
         # блок обработки сообщений (и ошибок, с ними связанных)
         try:
             ts = events.json()['ts']
-            #print(events.json())
             takeMessage(events.json())
 
         except Exception as e:
