@@ -24,7 +24,7 @@ group_id = config.getint('misc','group_id')
 
 # кнопки с названиями направлений
 dirs_keyboard = json.dumps(team.generate_keyboard())
-# кнопки "У меня нет отчества" и кнпока отмены
+# кнопки "У меня нет отчества" и кнопка отмены
 kb_cancel_nosurname = json.dumps({
                 "one_time": True,
                 "buttons": [[{
@@ -42,7 +42,7 @@ kb_cancel_nosurname = json.dumps({
                     },
                     "color": "negative"
                 }]]})
-# кнопка отмены
+# кнопка отмены (полностью аналогична кнопке "начать")
 kb_cancel_only = json.dumps({
                 "one_time": True,
                 "buttons": [[{
@@ -53,6 +53,16 @@ kb_cancel_only = json.dumps({
                     },
                     "color": "negative"
                 }]]})
+# кнопка повторной подачи заявки (полностью аналогична кнопке "начать")
+kb_restart = json.dumps({
+            "one_time": True,
+            "buttons": [[{
+                "action": {
+                    "type": "text",
+                    "payload": '{"command": "start"}',
+                    "label": "Подать ещё одну заявку"
+                }
+            }]]})
 
 usercache = {}
 
@@ -188,7 +198,7 @@ def takeMessage(events):
                 sendMessage(team.directorate['admin'][0], msg)
                 # т.к. это последняя стадия регистрации, отправляем сообщение "Спасибо" и удаляем юзера из кэша
                 # дополнительно сохраняем инфу в файл, на случай если замыки случайно удалят сообщения
-                sendMessage(from_id, team.thanks.format(config['misc']['chat_url']))
+                sendMessage(from_id, team.thanks.format(config['misc']['chat_url']), kb_restart)
                 with open("database/{0}.txt".format(team.directions[direction_sel]['codename']), 'a+', encoding='utf-8') as file:
                     file.write("{0}\r\n{1}\r\nhttps://vk.com/id{2}\r\n\r\n".format(usercache[from_id][0], text, from_id))
                 del usercache[from_id]
@@ -221,7 +231,7 @@ try:
             logger.error(e, exc_info=1)
             print("[SYSTEM] Waiting 30 seconds")
             sleep(30)
-            updateLongPoll()
+            #updateLongPoll()
             pass
 
         # блок обработки сообщений (и ошибок, с ними связанных)
