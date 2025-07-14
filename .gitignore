@@ -1,5 +1,5 @@
-team.py
-prisma.ini
 __pycache__
-database
-prismabot.log
+*.log
+*.bak
+*.json
+!*.example.json
