@@ -37,6 +37,23 @@ def get_sel_button(id: int):
                 "color": "positive"
             }]]})
 
+def get_confirm_buttons():
+    return json.dumps({
+                "buttons": [[{
+                    "action": {
+                        "type": "text",
+                        "payload": '{"command": "submit"}',
+                        "label": "Подтвердить"
+                    }
+                }],[{
+                    "action": {
+                        "type": "text",
+                        "payload": '{"command": "again"}',
+                        "label": "Начать заново"
+                    },
+                    "color": "negative"
+                }]]})
+
 def get_final_buttons(url: str):
     return json.dumps({
                 "buttons": [[{
@@ -118,8 +135,8 @@ def get_bday_buttons(date: str):
                 }],[{
                     "action": {
                         "type": "text",
-                        "payload": '{"command": "back"}',
-                        "label": "Назад"
+                        "payload": '{"command": "again"}',
+                        "label": "Начать заново"
                     },
                     "color": "negative"
                 }]]})

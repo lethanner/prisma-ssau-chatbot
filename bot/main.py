@@ -52,6 +52,7 @@ if not exists('userdata/registered.json'):
 
 @dataclass
 class UserData:
+    vkname: str = ""
     name: str = ""
     stage: int = 0
     group_no: str = '-'
@@ -61,11 +62,13 @@ class UserData:
 
 usercache = dict()
 
-def getDirector(id: int) -> list:
-    return  [
-                (config['directorate'][dir['codename']]['name'],dir['name'])
-                for dir in config['directions'] if id == config['directorate'][dir['codename']]['id']
-            ]
+director_id = lambda dir: config['directorate'][dir]['id']
+director_name = lambda dir: config['directorate'][dir]['name']
+def getDirector(id: int) -> tuple:
+    for dir in config['directions']:
+        if id == director_id(dir['codename']):
+            return (director_name(dir['codename']),dir['name'])
+    return ()
 
 # отправка сообщений
 def sendMessage(peer_id: int, text: str, keyboard: str = ''):
@@ -101,65 +104,105 @@ def processMessage(events):
         print("[MESSAGE] id{0}: {1}; payload: {2}".format(from_id, text, payload))
         logger.info("From id%i: %s, payload: %s", from_id, text, payload)
 
-        # команда "заново" (с сохранением выбора направлений)
+        # === команда "заново" (с сохранением выбора направлений) ===
         if command == 'again':
             usercache[from_id].stage = 0
+            usercache[from_id].name = usercache[from_id].vkname
             sel_force_render = True
             command = 'none'
-        # команда отмены выбора направления
+
+        # === команда отмены выбора направления ===
         elif command == 'deselect':
-            try: usercache[from_id].selection.remove(data)
-            except ValueError: pass
+            usercache[from_id].selection.discard(data)
             # если после снятия выбора ничего не осталось, возвращаем
             # в самое начало, имитируя повторное нажатие кнопки "начать"
             if len(usercache[from_id].selection) == 0: command = 'start'
             # иначе триггеруем отображение списка
             else: sel_force_render = True
 
-        # "начать"
+        # === "начать" ===
         if command == 'start' or text.lower() == 'начать':
             director = getDirector(from_id)
             # замыкающему приходит только инфа о нём
             if director:
-                sendMessage(from_id, "{0}, ты замыкаешь направление: {1}.".format(*director[0]))
-            else:
-                sendMessage(from_id, "Выбери направление в списке, чтобы узнать о нём больше!", keyboards.generate_dirs_keyboard(config['directions'])) 
+                sendMessage(from_id, "{0}, ты замыкаешь направление: {1}.".format(*director))
+            else: 
                 usercache.pop(from_id, None)
                 usercache[from_id] = UserData()
-        # нажатие на направление (выброс описания с кнопкой "хочу сюда!")
+                # достать ФИ юзера с его страницы ВК
+                user = vk.users.get(user_ids=from_id,fields='is_verified',lang=0)[0]
+                usercache[from_id].vkname = usercache[from_id].name = "{0} {1}".format(user['last_name'], user['first_name'])
+                sendMessage(from_id, "Выбери направление в списке, чтобы узнать о нём больше!\nНе забывай, что список прокручивается.",
+                            keyboards.generate_dirs_keyboard(config['directions']))
+
+        # === нажатие на направление (выброс описания с кнопкой "хочу сюда!") ===
         elif command == 'descr' and 0 <= data <= dir_count:
             director = config['directorate'][config['directions'][data]['codename']] 
             descr = '{0}\n\n{1}амыкающий направления - @id{2} ({3}).'.format(config['directions'][data]['description'], 
                                                                                  *('З', director['id'], director['name']) if director['id']
-                                                                                 else ('Временный з',   config['directorate']['owner']['id'], 
-                                                                                                        config['directorate']['owner']['name'])) 
+                                                                                 else ('Временный з',   director_id('owner'), director_name('owner'))) 
             sendMessage(from_id, descr, keyboards.get_sel_button(data))
-        # нажатие кнопки "хочу сюда!"
+
+        # === завершение регистрации ===
+        elif command == 'submit' and usercache[from_id].stage == 4:
+            with open('userdata/registered.json', 'r+', encoding='utf-8') as f:
+                usr = usercache[from_id]
+                database = json.load(f)
+                database['newbies'].append({"name": usr.name,
+                                            "birthday": usr.birthday,
+                                            "group": usr.group_no,
+                                            "vk": 'https://vk.com/id' + str(from_id),
+                                            "roles": ', '.join([config['directions'][id]['nickname'] for id in usr.selection]).capitalize(),
+                                            "role_ids": list(usr.selection),
+                                            "timecode": time()})
+                f.seek(0)
+                json.dump(database, f, indent=4, ensure_ascii=False)
+
+            # администратор, худрук и зам получают сообщения вообще обо всех заявках
+            # остальные замыкающие - только если в заявке есть их направление
+            # список рассылки формируется как set во избежание дублирования сообщений 
+            # (из-за того, что худрук местами ещё и замыкающий) 
+            spambase = {director_id(config['directions'][id]['codename']) for id in usr.selection}
+            spambase.update([director_id('owner'), director_id('admin'), director_id('deputy')])
+            spambase.discard(0) # для "отсутствующих" замыкающих
+            for id in spambase:
+                sendMessage(id, "@id{0} ({1}) подал(а) заявку в: {2}.".format(from_id, usercache[from_id].name, ', '.join(
+                                                        [config['directions'][id]['name'].lower() for id in usr.selection])))
+            sendMessage(from_id, """
+Спасибо за регистрацию! ❤️
+                            
+Напоследок - присоединись, пожалуйста, к чату набора:
+{0}
+                            
+Это нужно сделать обязательно - в дальнейшем в нём будет размещена важная информация.
+                            """.format(config['chat_url']), keyboards.get_final_buttons(config['chat_url']))
+            usercache.pop(from_id, None)
+
+        # === нажатие кнопки "хочу сюда!" ===
         elif (command == 'select' or sel_force_render) and 0 <= data <= dir_count:
             if not sel_force_render: usercache[from_id].selection.add(data)
             reply = "Твой выбор:\n\n{0}{1}".format(
                         '\n'.join(['· ' + config['directions'][id]['name'] for id in usercache[from_id].selection]),
-                        '\n\nТы можешь указать ещё несколько направлений или закончить.\nЧтобы отменить выбор, нажми на кнопку с названием направления ещё раз.'
+                        '\n\nТы можешь указать ещё несколько направлений или закончить.\nЧтобы отменить выбор, повторно нажми на соответствующее направление в меню.'
                         if len(usercache[from_id].selection) == 1 else '')
             sendMessage(from_id, reply, keyboards.generate_dirs_keyboard(config['directions'], usercache[from_id].selection))
-        # нажатие кнопки "закончить выбор"
+
+        # === нажатие кнопки "закончить выбор" ===
         elif command == 'finish' and len(usercache[from_id].selection) > 0:
-            # достать ФИ юзера с его страницы ВК
-            user = vk.users.get(user_ids=from_id,fields='is_verified',lang=0)[0]
-            usercache[from_id].name = "{0} {1}".format(user['last_name'], user['first_name'])
             msg = """
 Отлично! Тво{0} в Призме - {1}.
 
-Если {2} - твои настоящие имя и фамилия, то напиши, пожалуйста, своё отчество (например, Иванович).
+Если {2} - твои настоящие фамилия и имя, то напиши, пожалуйста, своё отчество (например, Иванович).
 Если это неправильно или они написаны на иностранном языке - напиши своё ФИО полностью.
             """.format(
                     'и роли' if len(usercache[from_id].selection) > 1 else 'я роль',
-                    ', '.join([config['directions'][id]['nickname'].lower() for id in usercache[from_id].selection]),
+                    ', '.join([config['directions'][id]['nickname'] for id in usercache[from_id].selection]),
                     usercache[from_id].name
                 )
             sendMessage(from_id, msg, keyboards.fio_request)
             usercache[from_id].stage = 1
-        # админские команды
+
+        # === админские команды ===
         elif from_id == config['bot_admin']: 
             if text == '/lol': # отладочное
                 a = 1/0
@@ -169,14 +212,18 @@ def processMessage(events):
                     config = conf
                     sendMessage(from_id, 'Конфигурация обновлена')
                 else: sendMessage(from_id, 'Ошибка загрузки конфигурации')
+
+        # === "олд" ===
         elif text.lower() == 'олд':
             sendMessage(from_id, """
 Прочитай описание направлений по ссылке: {0} и определись с интересующими тебя направлениями.
                         
-Затем напиши мне своё ФИО, номер группы (если ты учишься в Самарском университете), дату рождения (при желании) и направления, в которых ты хочешь участвовать - в любом удобном формате.
+Затем в свободной форме напиши мне своё ФИО, номер группы (если ты учишься в Самарском университете), дату рождения (при желании) и направления, в которых ты хочешь участвовать.
                         """.format(config['about_directions_url']), '{"buttons": []}')
-            # секретная четвертая стадия
-            usercache[from_id].stage = 4
+            # секретная пятая стадия
+            usercache[from_id].stage = 5
+
+        # === движение по стадиям регистрации ===
         elif command in ('none', 'skip'):
             # обработка О/ФИО, переход на ввод номера группы
             if usercache[from_id].stage == 1:
@@ -192,6 +239,7 @@ def processMessage(events):
                 # и потом просим у клиента номер группы
                 sendMessage(from_id, 'Теперь напиши номер своей группы (например, 6411-110501D).\n\n‼️ Пропусти этот шаг, если ты не студент Самарского университета.', keyboards.group_no)
                 usercache[from_id].stage = 2
+
             # обработка номера группы, переход на стадию ввода даты рождения
             elif usercache[from_id].stage == 2:
                 usercache[from_id].group_no = text if command != 'skip' else '-'
@@ -202,31 +250,26 @@ def processMessage(events):
                             keyboards.get_bday_buttons(user.get('bdate', '')))
                 
                 usercache[from_id].stage = 3
-            # завершение регистрации
+
+            # запрос на сверку окончательных данных
             elif usercache[from_id].stage == 3:
                 usercache[from_id].birthday = text if command != 'skip' else '-'
-                with open('userdata/registered.json', 'r+', encoding='utf-8') as f:
-                    usr = usercache[from_id]
-                    database = json.load(f)
-                    database['newbies'].append({"name": usr.name,
-                                                "birthday": usr.birthday,
-                                                "group": usr.group_no,
-                                                "vk": 'https://vk.com/id' + str(from_id),
-                                                "roles": ', '.join([config['directions'][id]['nickname'].lower() for id in usr.selection]).capitalize(),
-                                                "role_ids": list(usr.selection),
-                                                "timecode": time()})
-                    f.seek(0)
-                    json.dump(database, f, indent=4, ensure_ascii=False)
                 sendMessage(from_id, """
-Спасибо за регистрацию! ❤️
-                            
-Напоследок - присоединись, пожалуйста, к чату набора:
-{0}
-                            
-Это нужно сделать обязательно - в дальнейшем в нём будет размещена важная информация.
-                            """.format(config['chat_url']), keyboards.get_final_buttons(config['chat_url']))
+Давай всё сверим:
+
+· ФИО: {0}
+· Роли: {1}
+· Группа: {2}
+· ДР: {3}
+
+Если всё правильно, нажми кнопку "Подтвердить".
+Если у тебя появился вопрос - напиши его сейчас, и мы ответим как можно скорее.
+""".format(usercache[from_id].name, ', '.join([config['directions'][id]['nickname'] for id in usercache[from_id].selection]),
+           usercache[from_id].group_no, usercache[from_id].birthday), keyboards.get_confirm_buttons())
+                usercache[from_id].stage = 4
+
             # обработка ручной подачи заявки
-            elif usercache[from_id].stage == 4:
+            elif usercache[from_id].stage == 5:
                 with open('userdata/registered.json', 'r+', encoding='utf-8') as f:
                     database = json.load(f)
                     database['manual'].append({"text": text,
@@ -234,6 +277,10 @@ def processMessage(events):
                                                 "timecode": time()})
                     f.seek(0)
                     json.dump(database, f, indent=4, ensure_ascii=False)
+                
+                spambase = {director_id('owner'), director_id('admin'), director_id('deputy')}
+                for id in spambase:
+                    sendMessage(id, "@id{0} ({1}) подал(а) заявку вручную:\n{2}".format(from_id, usercache[from_id].name, text))
                 sendMessage(from_id, """
 Информацию приняли, спасибо! ❤️
 Мы обработаем твою заявку вручную.
@@ -243,7 +290,9 @@ def processMessage(events):
                             
 Это нужно сделать обязательно - в дальнейшем в нём будет размещена важная информация.
                             """.format(config['chat_url']))
+                usercache.pop(from_id, None)
 
+        # ========================
         if client and (not client['keyboard'] or not client['inline_keyboard'] or 'callback' not in client['button_actions']) and not usercache[from_id].old_warning:
             sendMessage(from_id, '⚠️ Внимание! Похоже, у тебя старая версия ВКонтакте.\n\nЕсли ты не видишь кнопок или они не работают, напиши "Олд", чтобы подать заявку вручную.')
             usercache[from_id].old_warning = True
