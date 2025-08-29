@@ -6,6 +6,7 @@
     "about_directions_url": "https://vk.com/@prisma_ssau-hochu-vstupit",
     "auth_token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccdddddddddddddddddddddd",
     "group_id": 1234567890,
+    "group_id_in_chat": 1,
     "bot_admin": 101010101,
 
     "directorate": {
@@ -46,6 +47,10 @@
         "admin": {
             "name": "Имя Фамилия",
             "id": 777777777
+        },
+        "deputy": {
+            "name": "Имя Фамилия",
+            "id": 888888888
         }
     },
 

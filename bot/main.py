@@ -75,7 +75,7 @@ def sendMessage(peer_id: int, text: str, keyboard: str = ''):
     try:
         vk.messages.send(peer_id=peer_id,message=text,random_id=0, 
                          keyboard=keyboard)
-        print("[BOT] to id{0}: {1}".format(peer_id, text))
+        print(f"[BOT] to id{peer_id}: {text}")
         logger.info("To id%i: %s, keyboard: %s", peer_id, text, keyboard)
     except Exception as e:
         print("[ERROR] Failed to send message to", peer_id, "!", e)
@@ -101,8 +101,16 @@ def processMessage(events):
         data = int(payload.get('data', 0))
         sel_force_render = False
 
-        print("[MESSAGE] id{0}: {1}; payload: {2}".format(from_id, text, payload))
+        # пропуск сообщений из бесед (если бот был в них добавлен)
+        if from_id > 2000000000:
+            continue
+
+        print(f"[MESSAGE] id{from_id}: {text}; payload: {payload}")
         logger.info("From id%i: %s, payload: %s", from_id, text, payload)
+
+        if command not in ('none', 'start') and not usercache.get(from_id):
+            sendMessage(from_id, '⚠️ По техническим причинам сессия была сброшена.\n\nПожалуйста, напиши "Начать" и подай заявку заново.')
+            continue
 
         # === команда "заново" (с сохранением выбора направлений) ===
         if command == 'again':
@@ -131,9 +139,13 @@ def processMessage(events):
                 usercache[from_id] = UserData()
                 # достать ФИ юзера с его страницы ВК
                 user = vk.users.get(user_ids=from_id,fields='is_verified',lang=0)[0]
-                usercache[from_id].vkname = usercache[from_id].name = "{0} {1}".format(user['last_name'], user['first_name'])
+                usercache[from_id].vkname = usercache[from_id].name = f"{user['last_name']} {user['first_name']}"
                 sendMessage(from_id, "Выбери направление в списке, чтобы узнать о нём больше!\nНе забывай, что список прокручивается.",
                             keyboards.generate_dirs_keyboard(config['directions']))
+                
+                if client and (not client['keyboard'] or not client['inline_keyboard'] or 'callback' not in client['button_actions']):
+                    sendMessage(from_id, '⚠️ Внимание! Похоже, у тебя старая версия ВКонтакте.\n\n'
+                                'Если ты не видишь кнопок или они не работают, напиши "Олд", чтобы подать заявку вручную.')
 
         # === нажатие на направление (выброс описания с кнопкой "хочу сюда!") ===
         elif command == 'descr' and 0 <= data <= dir_count:
@@ -144,7 +156,7 @@ def processMessage(events):
             sendMessage(from_id, descr, keyboards.get_sel_button(data))
 
         # === завершение регистрации ===
-        elif command == 'submit' and usercache[from_id].stage == 4:
+        elif (command == 'submit' or text.lower() == 'подтвердить') and usercache[from_id].stage == 4:
             with open('userdata/registered.json', 'r+', encoding='utf-8') as f:
                 usr = usercache[from_id]
                 database = json.load(f)
@@ -158,6 +170,7 @@ def processMessage(events):
                 f.seek(0)
                 json.dump(database, f, indent=4, ensure_ascii=False)
 
+            direction_list = ', '.join([config['directions'][id]['name'].lower() for id in usr.selection])
             # администратор, худрук и зам получают сообщения вообще обо всех заявках
             # остальные замыкающие - только если в заявке есть их направление
             # список рассылки формируется как set во избежание дублирования сообщений 
@@ -166,16 +179,15 @@ def processMessage(events):
             spambase.update([director_id('owner'), director_id('admin'), director_id('deputy')])
             spambase.discard(0) # для "отсутствующих" замыкающих
             for id in spambase:
-                sendMessage(id, "@id{0} ({1}) подал(а) заявку в: {2}.".format(from_id, usercache[from_id].name, ', '.join(
-                                                        [config['directions'][id]['name'].lower() for id in usr.selection])))
-            sendMessage(from_id, """
+                sendMessage(id, f"@id{from_id} ({usercache[from_id].name}) подал(а) заявку в: {direction_list}.")
+            sendMessage(from_id, f"""
 Спасибо за регистрацию! ❤️
                             
 Напоследок - присоединись, пожалуйста, к чату набора:
-{0}
+{config['chat_url']}
                             
 Это нужно сделать обязательно - в дальнейшем в нём будет размещена важная информация.
-                            """.format(config['chat_url']), keyboards.get_final_buttons(config['chat_url']))
+                            """, keyboards.get_final_buttons(config['chat_url']))
             usercache.pop(from_id, None)
 
         # === нажатие кнопки "хочу сюда!" ===
@@ -189,16 +201,13 @@ def processMessage(events):
 
         # === нажатие кнопки "закончить выбор" ===
         elif command == 'finish' and len(usercache[from_id].selection) > 0:
-            msg = """
-Отлично! Тво{0} в Призме - {1}.
+            roles = ', '.join([config['directions'][id]['nickname'] for id in usercache[from_id].selection])
+            msg = f"""
+Отлично! Тво{'и роли' if len(usercache[from_id].selection) > 1 else 'я роль'} в Призме - {roles}.
 
-Если {2} - твои настоящие фамилия и имя, то напиши, пожалуйста, своё отчество (например, Иванович).
+Если {usercache[from_id].name} - твои настоящие фамилия и имя, то напиши, пожалуйста, своё отчество (например, Иванович).
 Если это неправильно или они написаны на иностранном языке - напиши своё ФИО полностью.
-            """.format(
-                    'и роли' if len(usercache[from_id].selection) > 1 else 'я роль',
-                    ', '.join([config['directions'][id]['nickname'] for id in usercache[from_id].selection]),
-                    usercache[from_id].name
-                )
+            """
             sendMessage(from_id, msg, keyboards.fio_request)
             usercache[from_id].stage = 1
 
@@ -215,11 +224,11 @@ def processMessage(events):
 
         # === "олд" ===
         elif text.lower() == 'олд':
-            sendMessage(from_id, """
-Прочитай описание направлений по ссылке: {0} и определись с интересующими тебя направлениями.
+            sendMessage(from_id, f"""
+Прочитай описание направлений по ссылке: {config['about_directions_url']} и определись с интересующими тебя направлениями.
                         
 Затем в свободной форме напиши мне своё ФИО, номер группы (если ты учишься в Самарском университете), дату рождения (при желании) и направления, в которых ты хочешь участвовать.
-                        """.format(config['about_directions_url']), '{"buttons": []}')
+                        """, '{"buttons": []}')
             # секретная пятая стадия
             usercache[from_id].stage = 5
 
@@ -254,25 +263,25 @@ def processMessage(events):
             # запрос на сверку окончательных данных
             elif usercache[from_id].stage == 3:
                 usercache[from_id].birthday = text if command != 'skip' else '-'
-                sendMessage(from_id, """
+                sendMessage(from_id, f"""
 Давай всё сверим:
 
-· ФИО: {0}
-· Роли: {1}
-· Группа: {2}
-· ДР: {3}
+· ФИО: {usercache[from_id].name}
+· Роли: {', '.join([config['directions'][id]['nickname'] for id in usercache[from_id].selection])}
+· Группа: {usercache[from_id].group_no}
+· ДР: {usercache[from_id].birthday}
 
 Если всё правильно, нажми кнопку "Подтвердить".
 Если у тебя появился вопрос - напиши его сейчас, и мы ответим как можно скорее.
-""".format(usercache[from_id].name, ', '.join([config['directions'][id]['nickname'] for id in usercache[from_id].selection]),
-           usercache[from_id].group_no, usercache[from_id].birthday), keyboards.get_confirm_buttons())
+""", keyboards.get_confirm_buttons())
                 usercache[from_id].stage = 4
 
             # обработка ручной подачи заявки
             elif usercache[from_id].stage == 5:
                 with open('userdata/registered.json', 'r+', encoding='utf-8') as f:
                     database = json.load(f)
-                    database['manual'].append({"text": text,
+                    database['manual'].append({"name": usercache[from_id].vkname,
+                                                "text": text,
                                                 "vk": 'https://vk.com/id' + str(from_id),
                                                 "timecode": time()})
                     f.seek(0)
@@ -280,22 +289,17 @@ def processMessage(events):
                 
                 spambase = {director_id('owner'), director_id('admin'), director_id('deputy')}
                 for id in spambase:
-                    sendMessage(id, "@id{0} ({1}) подал(а) заявку вручную:\n{2}".format(from_id, usercache[from_id].name, text))
-                sendMessage(from_id, """
+                    sendMessage(id, f"@id{from_id} ({usercache[from_id].name}) подал(а) заявку вручную:\n{text}")
+                sendMessage(from_id, f"""
 Информацию приняли, спасибо! ❤️
 Мы обработаем твою заявку вручную.
                             
 Ты уже сейчас можешь присоединиться к чату набора:
-{0}
+{config['chat_url']}
                             
 Это нужно сделать обязательно - в дальнейшем в нём будет размещена важная информация.
-                            """.format(config['chat_url']))
+                            """)
                 usercache.pop(from_id, None)
-
-        # ========================
-        if client and (not client['keyboard'] or not client['inline_keyboard'] or 'callback' not in client['button_actions']) and not usercache[from_id].old_warning:
-            sendMessage(from_id, '⚠️ Внимание! Похоже, у тебя старая версия ВКонтакте.\n\nЕсли ты не видишь кнопок или они не работают, напиши "Олд", чтобы подать заявку вручную.')
-            usercache[from_id].old_warning = True
 try:
     # главный цикл бота (приём и обработка сообщений)
     print('[INFO] Bot is started.')
