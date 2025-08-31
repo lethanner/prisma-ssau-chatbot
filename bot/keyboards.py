@@ -147,13 +147,13 @@ def get_bday_buttons(date: str):
         return group_no
     
     
-# кнопка повторной подачи заявки (полностью аналогична кнопке "начать")
-# restart = json.dumps({
-#             "one_time": True,
-#             "buttons": [[{
-#                 "action": {
-#                     "type": "text",
-#                     "payload": '{"command": "start"}',
-#                     "label": "Подать ещё одну заявку"
-#                 }
-#             }]]})
+# кнопка "начать"
+start = json.dumps({
+            "one_time": True,
+            "buttons": [[{
+                "action": {
+                    "type": "text",
+                    "payload": '{"command": "start"}',
+                    "label": "Начать"
+                }
+            }]]})

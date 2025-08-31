@@ -15,7 +15,7 @@ import keyboards
 # логгер
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-loghandler = logging.FileHandler('prismabot.log', 'a', 'utf-8')
+loghandler = logging.FileHandler('prismabot.log', 'a', encoding='utf-8')
 loghandler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
 logger.addHandler(loghandler)
 
@@ -58,7 +58,6 @@ class UserData:
     group_no: str = '-'
     birthday: str = '-'
     selection: set[int] = field(default_factory=set)
-    old_warning: bool = False
 
 usercache = dict()
 
@@ -75,8 +74,8 @@ def sendMessage(peer_id: int, text: str, keyboard: str = ''):
     try:
         vk.messages.send(peer_id=peer_id,message=text,random_id=0, 
                          keyboard=keyboard)
-        print(f"[BOT] to id{peer_id}: {text}")
-        logger.info("To id%i: %s, keyboard: %s", peer_id, text, keyboard)
+        #print(f"[BOT] to id{peer_id}: {text}")
+        logger.info("To id%i: %s, keyboard: %s", peer_id, text.replace('\n', '\\n'), keyboard)
     except Exception as e:
         print("[ERROR] Failed to send message to", peer_id, "!", e)
         logger.error("Can't send message to %i", peer_id, exc_info=True)
@@ -94,7 +93,7 @@ def processMessage(events):
         else: # остальное пропускаем
             continue
     
-        text = obj.get('text', '')
+        text: str = obj.get('text', '')
         from_id = obj['peer_id']
         command = payload.get('command', "")
         client = event['object'].get('client_info', ())
@@ -105,11 +104,12 @@ def processMessage(events):
         if from_id > 2000000000:
             continue
 
-        print(f"[MESSAGE] id{from_id}: {text}; payload: {payload}")
-        logger.info("From id%i: %s, payload: %s", from_id, text, payload)
+        #print(f"[MESSAGE] id{from_id}: {text}; payload: {payload}")
+        logger.info("From id%i: %s, payload: %s", from_id, text.replace('\n', '\\n'), payload)
 
         if command not in ('none', 'start') and not usercache.get(from_id):
-            sendMessage(from_id, '⚠️ По техническим причинам сессия была сброшена.\n\nПожалуйста, напиши "Начать" и подай заявку заново.')
+            print(f"[WARNING] Not found in cache: {from_id}")
+            sendMessage(from_id, '⚠️ По техническим причинам сессия была сброшена.\n\nПожалуйста, напиши "Начать" и подай заявку заново.', keyboards.start)
             continue
 
         # === команда "заново" (с сохранением выбора направлений) ===
@@ -140,10 +140,12 @@ def processMessage(events):
                 # достать ФИ юзера с его страницы ВК
                 user = vk.users.get(user_ids=from_id,fields='is_verified',lang=0)[0]
                 usercache[from_id].vkname = usercache[from_id].name = f"{user['last_name']} {user['first_name']}"
+                print(f"[INFO] {usercache[from_id].name} ({from_id}) beginning registration.")
                 sendMessage(from_id, "Выбери направление в списке, чтобы узнать о нём больше!\nНе забывай, что список прокручивается.",
                             keyboards.generate_dirs_keyboard(config['directions']))
                 
                 if client and (not client['keyboard'] or not client['inline_keyboard'] or 'callback' not in client['button_actions']):
+                    print("[INFO] VK old version detected.")
                     sendMessage(from_id, '⚠️ Внимание! Похоже, у тебя старая версия ВКонтакте.\n\n'
                                 'Если ты не видишь кнопок или они не работают, напиши "Олд", чтобы подать заявку вручную.')
 
@@ -157,6 +159,7 @@ def processMessage(events):
 
         # === завершение регистрации ===
         elif (command == 'submit' or text.lower() == 'подтвердить') and usercache[from_id].stage == 4:
+            print("[INFO] Saving registered.json...", end='')
             with open('userdata/registered.json', 'r+', encoding='utf-8') as f:
                 usr = usercache[from_id]
                 database = json.load(f)
@@ -169,6 +172,8 @@ def processMessage(events):
                                             "timecode": time()})
                 f.seek(0)
                 json.dump(database, f, indent=4, ensure_ascii=False)
+                
+                print("done.")
 
             direction_list = ', '.join([config['directions'][id]['name'].lower() for id in usr.selection])
             # администратор, худрук и зам получают сообщения вообще обо всех заявках
@@ -188,6 +193,7 @@ def processMessage(events):
                             
 Это нужно сделать обязательно - в дальнейшем в нём будет размещена важная информация.
                             """, keyboards.get_final_buttons(config['chat_url']))
+            print(f"[INFO] Successfully registered {usercache[from_id].name} ({from_id}).")
             usercache.pop(from_id, None)
 
         # === нажатие кнопки "хочу сюда!" ===
@@ -278,6 +284,7 @@ def processMessage(events):
 
             # обработка ручной подачи заявки
             elif usercache[from_id].stage == 5:
+                print("[INFO] Saving registered.json...", end='')
                 with open('userdata/registered.json', 'r+', encoding='utf-8') as f:
                     database = json.load(f)
                     database['manual'].append({"name": usercache[from_id].vkname,
@@ -287,6 +294,8 @@ def processMessage(events):
                     f.seek(0)
                     json.dump(database, f, indent=4, ensure_ascii=False)
                 
+                    print("done.")
+
                 spambase = {director_id('owner'), director_id('admin'), director_id('deputy')}
                 for id in spambase:
                     sendMessage(id, f"@id{from_id} ({usercache[from_id].name}) подал(а) заявку вручную:\n{text}")
@@ -299,21 +308,21 @@ def processMessage(events):
                             
 Это нужно сделать обязательно - в дальнейшем в нём будет размещена важная информация.
                             """)
+                print(f"[INFO] Manually registered {usercache[from_id].name} ({from_id}).")
                 usercache.pop(from_id, None)
+
+# === главный цикл ===
 try:
-    # главный цикл бота (приём и обработка сообщений)
     print('[INFO] Bot is started.')
     logger.info("Bot is started.")
     while True:
         try:
             receiver.do(processMessage)
         except Exception as e:
-            # отлов ошибок без аварийного завершения работы
             print("[ERROR] Something went wrong!!!", e)
             sendMessage(config['bot_admin'], "боту плохо, посмотри логи...\n" + str(e))
             logger.error(e, exc_info=True)
 except KeyboardInterrupt:
-    # обработка команды завершения работы
     receiver.saveSession()
     print('Stopping.')
     logger.info("Shutting down.")

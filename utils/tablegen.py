@@ -27,6 +27,7 @@ except Exception as e:
     print(f'{e}\n\033[33mВНИМАНИЕ:\033[0m Не удалось загрузить список участников чата. Таблица будет сгенерирована без отсеивания.\n')
     pass
 
+extract_date = lambda stamp: datetime.fromtimestamp(stamp).strftime('%Y-%m-%d %H:%M:%S')
 try:
     with open(infile, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -38,7 +39,7 @@ try:
         
         header = workbook.add_format({'bold': True})
         red = workbook.add_format({'bg_color': '#FF0000'})
-        unnecessary = workbook.add_format({'bg_color': '#CCCCCC'})
+        #unnecessary = workbook.add_format({'bg_color': '#CCCCCC'})
 
         # заголовок таблицы
         for i, text in enumerate(('Фамилия, имя, отчество', 'Род деятельности', 'Номер группы',
@@ -61,8 +62,7 @@ try:
 
             for col, key in enumerate(keys):
                 worksheet.write(row, col, newbie[key])
-            worksheet.write(row, 5, datetime.fromtimestamp(newbie['timecode'])
-                            .strftime('%Y-%m-%d %H:%M:%S'))
+            worksheet.write(row, 5, extract_date(newbie['timecode']))
         
             row += 1
 
@@ -72,8 +72,7 @@ try:
 
             for col, key in enumerate(keys):
                 worksheet.write(row, col, ret[key], red)
-            worksheet.write(row, 5, datetime.fromtimestamp(ret['timecode'])
-                            .strftime('%Y-%m-%d %H:%M:%S'), red)
+            worksheet.write(row, 5, extract_date(ret['timecode']))
             
             row += 1
 
@@ -81,6 +80,19 @@ try:
 
         #worksheet.set_column('E:F', None, unnecessary)
         worksheet.autofit()
+
+        # заявки на ручную обработку
+        for manual in data['manual']:
+            #worksheet.write(row, 0, f"<{manual['name']}>")
+            worksheet.write(row, 0, f"<{manual['text']}>")
+            worksheet.write(row, 2, "<необходима ручная обработка заявки>")
+            worksheet.write(row, 4, manual['vk'])
+            worksheet.write(row, 5, extract_date(manual['timecode']))
+            row += 1
+
+        worksheet.write(row + 1, 0, f"Таблица сгенерирована {now:%Y-%m-%d в %H:%M:%S} скриптом tablegen.py.")
+        worksheet.write(row + 2, 0, "https://github.com/lethanner/prisma-ssau-chatbot/blob/master/utils/tablegen.py")
+
         workbook.close()
         print(f'Таблица сгенерирована: {outfile}')
 
@@ -88,5 +100,5 @@ except FileNotFoundError:
     print(f'Файл {infile} не найден')
 except json.JSONDecodeError:
     print(f'Файл {infile} повреждён')
-#except Exception as e:
-#    print('Ошибка:', e)
+except Exception as e:
+    print('Ошибка:', e)
