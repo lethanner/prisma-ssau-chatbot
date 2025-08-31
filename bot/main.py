@@ -36,7 +36,7 @@ def loadConfiguration():
         
 # загрузить конфигурацию из файла
 config = loadConfiguration()
-if not config: exit(0)
+if not config: exit(1)
 dir_count = len(config['directions'])
 # pyright: reportPossiblyUnboundVariable=none
 
